@@ -136,6 +136,8 @@
       </div>
       <label for="apiKey">Agora API Key:</label>
       <input type="text" id="apiKey" placeholder="Enter Agora API Key">
+      <label for="token">Agora Token:</label>
+      <input type="text" id="token" placeholder="Enter Agora Token">
       <label for="channel">Channel Name:</label>
       <input type="text" id="channel" placeholder="e.g. pawwatch-home">
       <div class="actions">
@@ -160,6 +162,7 @@
     const monitorBtn = document.getElementById('monitorBtn');
     const ownerBtn = document.getElementById('ownerBtn');
     const apiKeyInput = document.getElementById('apiKey');
+    const tokenInput = document.getElementById('token');
     const channelInput = document.getElementById('channel');
     const startBtn = document.getElementById('startBtn');
     const setupDiv = document.getElementById('setup');
@@ -168,10 +171,12 @@
     // --- State ---
     let role = getFromStorage('pawwatch-role') || 'monitor';
     let apiKey = getFromStorage('pawwatch-apikey') || '';
+    let token = getFromStorage('pawwatch-token') || '';
     let channel = getFromStorage('pawwatch-channel') || '';
 
     // --- Restore UI ---
     apiKeyInput.value = apiKey;
+    tokenInput.value = token;
     channelInput.value = channel;
     function updateRoleUI() {
       if (role === 'monitor') {
@@ -198,12 +203,14 @@
     // --- Start Button ---
     startBtn.onclick = async () => {
       apiKey = apiKeyInput.value.trim();
+      token = tokenInput.value.trim();
       channel = channelInput.value.trim();
-      if (!apiKey || !channel) {
-        alert('Please enter both Agora API Key and Channel Name!');
+      if (!apiKey || !token || !channel) {
+        alert('Please enter Agora API Key, Token, and Channel Name!');
         return;
       }
       saveToStorage('pawwatch-apikey', apiKey);
+      saveToStorage('pawwatch-token', token);
       saveToStorage('pawwatch-channel', channel);
       setupDiv.style.display = 'none';
       mainDiv.style.display = '';
@@ -237,7 +244,7 @@
       // Agora join as broadcaster
       rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
       await rtc.client.setClientRole('host');
-      await rtc.client.join(apiKey, channel, null, null);
+      await rtc.client.join(apiKey, channel, token, null);
       rtc.localVideoTrack = await AgoraRTC.createCameraVideoTrack();
       rtc.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
       await rtc.client.publish([rtc.localVideoTrack, rtc.localAudioTrack]);
@@ -259,7 +266,7 @@
       // Agora join as audience
       rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
       await rtc.client.setClientRole('audience');
-      await rtc.client.join(apiKey, channel, null, null);
+      await rtc.client.join(apiKey, channel, token, null);
       rtc.client.on('user-published', async (user, mediaType) => {
         await rtc.client.subscribe(user, mediaType);
         if (mediaType === 'video') {
