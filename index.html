@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PawWatch – Remote Pet Monitor</title>
+  <link rel="icon" href="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f436.png">
+  <style>
+    body {
+      font-family: 'Comic Sans MS', 'Comic Sans', cursive, sans-serif;
+      background: linear-gradient(135deg, #f9d423 0%, #ff4e50 100%);
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .container {
+      background: rgba(255,255,255,0.95);
+      border-radius: 24px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+      padding: 2rem 2.5rem;
+      margin-top: 3rem;
+      max-width: 400px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      font-size: 2.2rem;
+      margin-bottom: 0.2em;
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+    .paw {
+      font-size: 2.2rem;
+    }
+    label {
+      font-weight: bold;
+      margin-top: 1em;
+      margin-bottom: 0.2em;
+      display: block;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 0.5em;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 1em;
+      margin-bottom: 0.5em;
+    }
+    .role-select {
+      display: flex;
+      gap: 1em;
+      margin: 1em 0;
+    }
+    .role-btn {
+      background: #ff4e50;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      padding: 0.7em 1.5em;
+      font-size: 1.1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .role-btn.selected, .role-btn:hover {
+      background: #f9d423;
+      color: #ff4e50;
+    }
+    .actions {
+      margin-top: 1.5em;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    button {
+      background: #f9d423;
+      color: #ff4e50;
+      border: none;
+      border-radius: 12px;
+      padding: 0.7em 1.5em;
+      font-size: 1.1em;
+      cursor: pointer;
+      margin-top: 0.5em;
+      transition: background 0.2s;
+    }
+    button:disabled {
+      background: #eee;
+      color: #aaa;
+      cursor: not-allowed;
+    }
+    .video-container {
+      margin-top: 2em;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    video {
+      width: 100%;
+      max-width: 320px;
+      border-radius: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      background: #222;
+    }
+    .footer {
+      margin-top: 3em;
+      color: #fff;
+      opacity: 0.7;
+      font-size: 1em;
+      text-align: center;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+      vertical-align: middle;
+    }
+  </style>
+  <!-- Agora Web SDK -->
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1><span class="paw">🐾</span> PawWatch</h1>
+    <div id="branding" style="margin-bottom:1em; color:#ff4e50; font-size:1.1em;">Keep an eye on your furry friend, anywhere!</div>
+    <div id="setup">
+      <label for="role">Choose your role:</label>
+      <div class="role-select">
+        <button class="role-btn" id="monitorBtn">🐶 Pet Monitor</button>
+        <button class="role-btn" id="ownerBtn">👤 Owner</button>
+      </div>
+      <label for="apiKey">Agora API Key:</label>
+      <input type="text" id="apiKey" placeholder="Enter Agora API Key">
+      <label for="channel">Channel Name:</label>
+      <input type="text" id="channel" placeholder="e.g. pawwatch-home">
+      <div class="actions">
+        <button id="startBtn">Start</button>
+      </div>
+    </div>
+    <div id="main" style="display:none;"></div>
+  </div>
+  <div class="footer">
+    <span>Made with <span style="color:#ff4e50;">♥</span> for pets everywhere</span>
+  </div>
+  <script>
+    // --- Local Storage helpers ---
+    function saveToStorage(key, value) {
+      try { localStorage.setItem(key, value); } catch {}
+    }
+    function getFromStorage(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    }
+
+    // --- UI Elements ---
+    const monitorBtn = document.getElementById('monitorBtn');
+    const ownerBtn = document.getElementById('ownerBtn');
+    const apiKeyInput = document.getElementById('apiKey');
+    const channelInput = document.getElementById('channel');
+    const startBtn = document.getElementById('startBtn');
+    const setupDiv = document.getElementById('setup');
+    const mainDiv = document.getElementById('main');
+
+    // --- State ---
+    let role = getFromStorage('pawwatch-role') || 'monitor';
+    let apiKey = getFromStorage('pawwatch-apikey') || '';
+    let channel = getFromStorage('pawwatch-channel') || '';
+
+    // --- Restore UI ---
+    apiKeyInput.value = apiKey;
+    channelInput.value = channel;
+    function updateRoleUI() {
+      if (role === 'monitor') {
+        monitorBtn.classList.add('selected');
+        ownerBtn.classList.remove('selected');
+      } else {
+        ownerBtn.classList.add('selected');
+        monitorBtn.classList.remove('selected');
+      }
+    }
+    updateRoleUI();
+
+    monitorBtn.onclick = () => {
+      role = 'monitor';
+      saveToStorage('pawwatch-role', role);
+      updateRoleUI();
+    };
+    ownerBtn.onclick = () => {
+      role = 'owner';
+      saveToStorage('pawwatch-role', role);
+      updateRoleUI();
+    };
+
+    // --- Start Button ---
+    startBtn.onclick = async () => {
+      apiKey = apiKeyInput.value.trim();
+      channel = channelInput.value.trim();
+      if (!apiKey || !channel) {
+        alert('Please enter both Agora API Key and Channel Name!');
+        return;
+      }
+      saveToStorage('pawwatch-apikey', apiKey);
+      saveToStorage('pawwatch-channel', channel);
+      setupDiv.style.display = 'none';
+      mainDiv.style.display = '';
+      if (role === 'monitor') {
+        startMonitor();
+      } else {
+        startOwner();
+      }
+    };
+
+    // --- Agora Logic ---
+    let rtc = {
+      client: null,
+      localVideoTrack: null,
+      localAudioTrack: null,
+      remoteVideoTrack: null,
+      remoteUid: null
+    };
+
+    async function startMonitor() {
+      mainDiv.innerHTML = `
+        <h2>🐶 Pet Monitor</h2>
+        <div class="video-container">
+          <video id="localVideo" autoplay muted playsinline></video>
+        </div>
+        <div style="margin-top:1em; color:#888;">Streaming to channel: <b>${channel}</b></div>
+        <button id="leaveBtn">Stop Streaming</button>
+      `;
+      const leaveBtn = document.getElementById('leaveBtn');
+      leaveBtn.onclick = leaveChannel;
+      // Agora join as broadcaster
+      rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      await rtc.client.setClientRole('host');
+      await rtc.client.join(apiKey, channel, null, null);
+      rtc.localVideoTrack = await AgoraRTC.createCameraVideoTrack();
+      rtc.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      await rtc.client.publish([rtc.localVideoTrack, rtc.localAudioTrack]);
+      // Show preview
+      rtc.localVideoTrack.play('localVideo');
+    }
+
+    async function startOwner() {
+      mainDiv.innerHTML = `
+        <h2>👤 Owner</h2>
+        <div class="video-container">
+          <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+        <div style="margin-top:1em; color:#888;">Watching channel: <b>${channel}</b></div>
+        <button id="leaveBtn">Leave</button>
+      `;
+      const leaveBtn = document.getElementById('leaveBtn');
+      leaveBtn.onclick = leaveChannel;
+      // Agora join as audience
+      rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      await rtc.client.setClientRole('audience');
+      await rtc.client.join(apiKey, channel, null, null);
+      rtc.client.on('user-published', async (user, mediaType) => {
+        await rtc.client.subscribe(user, mediaType);
+        if (mediaType === 'video') {
+          rtc.remoteVideoTrack = user.videoTrack;
+          rtc.remoteVideoTrack.play('remoteVideo');
+        }
+      });
+      rtc.client.on('user-unpublished', (user, mediaType) => {
+        if (mediaType === 'video') {
+          const video = document.getElementById('remoteVideo');
+          video.srcObject = null;
+        }
+      });
+    }
+
+    async function leaveChannel() {
+      if (rtc.localVideoTrack) {
+        rtc.localVideoTrack.stop();
+        rtc.localVideoTrack.close();
+        rtc.localVideoTrack = null;
+      }
+      if (rtc.localAudioTrack) {
+        rtc.localAudioTrack.stop();
+        rtc.localAudioTrack.close();
+        rtc.localAudioTrack = null;
+      }
+      if (rtc.client) {
+        await rtc.client.leave();
+        rtc.client = null;
+      }
+      mainDiv.style.display = 'none';
+      setupDiv.style.display = '';
+    }
+  </script>
+</body>
+</html> 
