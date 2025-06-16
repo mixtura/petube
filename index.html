@@ -350,20 +350,16 @@
     googleSignInBtn.onclick = () => {
       window.location.href = 'https://auth.petube.workers.dev/auth/google/login';
     };
-    // --- Handle OAuth callback ---
-    (function handleOAuthCallback() {
-      const params = new URLSearchParams(window.location.search);
-      if (window.location.pathname === '/auth/google/callback' && params.has('code')) {
-        // Wait for backend to redirect with JWT
-        // This assumes backend returns JSON with { token }
-        fetch(window.location.href.replace('/auth/google/callback', 'https://auth.petube.workers.dev/auth/google/callback'), { credentials: 'include' })
-          .then(r => r.json())
-          .then(data => {
-            if (data.token) {
-              saveJWT(data.token);
-              window.location.href = '/';
-            }
-          });
+    // --- Handle token in URL fragment after OAuth redirect ---
+    (function handleOAuthTokenFragment() {
+      if (window.location.hash.startsWith('#token=')) {
+        const token = window.location.hash.slice(7);
+        if (token) {
+          saveJWT(token);
+          // Clean up the URL (remove fragment)
+          window.location.hash = '';
+          window.location.href = '/petube/';
+        }
       }
     })();
     // --- On load, check for JWT and fetch user info ---
