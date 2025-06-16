@@ -242,7 +242,13 @@
       }
       // Use user.id as channel and uid
       const channel = String(user.id);
-      const uid = String(user.id);
+      let uid = String(user.id);
+      if (role === 'monitor') {
+        uid += '-pub';
+      } else {
+        uid += '-sub';
+      }
+      console.log('Joining channel:', channel, 'with uid:', uid, 'as', role);
       setupDiv.style.display = 'none';
       mainDiv.style.display = '';
       if (role === 'monitor') {
