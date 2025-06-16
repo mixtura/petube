@@ -334,7 +334,7 @@
       const jwt = getJWT();
       if (!jwt) return;
       try {
-        const res = await fetch('/auth/me', {
+        const res = await fetch('https://auth.petube.workers.dev/auth/me', {
           headers: { 'Authorization': 'Bearer ' + jwt }
         });
         if (res.ok) {
@@ -348,7 +348,7 @@
       }
     }
     googleSignInBtn.onclick = () => {
-      window.location.href = '/auth/google/login';
+      window.location.href = 'https://auth.petube.workers.dev/auth/google/login';
     };
     // --- Handle OAuth callback ---
     (function handleOAuthCallback() {
@@ -356,7 +356,7 @@
       if (window.location.pathname === '/auth/google/callback' && params.has('code')) {
         // Wait for backend to redirect with JWT
         // This assumes backend returns JSON with { token }
-        fetch(window.location.href, { credentials: 'include' })
+        fetch(window.location.href.replace('/auth/google/callback', 'https://auth.petube.workers.dev/auth/google/callback'), { credentials: 'include' })
           .then(r => r.json())
           .then(data => {
             if (data.token) {

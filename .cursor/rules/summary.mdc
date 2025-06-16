@@ -6,4 +6,5 @@ alwaysApply: true
 This is project for remote pet monitoring
 It usees Agora service to stream video from one device to the another
 @/Petube - ios project
-@index.html - web version
+@index.html - web version, static page that deployed on github pages
+@/cloudflare - backend deployed to cloudfare workers
