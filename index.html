@@ -279,6 +279,7 @@
       rtc.localVideoTrack = await AgoraRTC.createCameraVideoTrack();
       rtc.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
       await rtc.client.publish([rtc.localVideoTrack, rtc.localAudioTrack]);
+      console.log('Published local tracks:', rtc.localVideoTrack, rtc.localAudioTrack);
       // Show preview
       rtc.localVideoTrack.play('localVideo');
     }
@@ -299,13 +300,16 @@
       await rtc.client.setClientRole('audience');
       await rtc.client.join(apiKey, channel, token, uid);
       rtc.client.on('user-published', async (user, mediaType) => {
+        console.log('user-published', user, mediaType);
         await rtc.client.subscribe(user, mediaType);
         if (mediaType === 'video') {
           rtc.remoteVideoTrack = user.videoTrack;
+          console.log('remote video track:', rtc.remoteVideoTrack);
           rtc.remoteVideoTrack.play('remoteVideo');
         }
       });
       rtc.client.on('user-unpublished', (user, mediaType) => {
+        console.log('user-unpublished', user, mediaType);
         if (mediaType === 'video') {
           const video = document.getElementById('remoteVideo');
           video.srcObject = null;

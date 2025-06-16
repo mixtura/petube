@@ -11,6 +11,8 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+import { RtcTokenBuilder, RtcRole } from 'agora-token';
+
 // Extend Env type for required environment variables
 interface Env {
 	GOOGLE_CLIENT_ID: string;
@@ -139,59 +141,23 @@ export default {
 			} catch (e) {
 				return new Response('Invalid token', { status: 401 });
 			}
-			// Agora token generation
 			const AGORA_APP_ID = env.AGORA_APP_ID;
 			const AGORA_APP_CERTIFICATE = env.AGORA_APP_CERTIFICATE;
 			const channelName = String(userId);
 			const uid = String(userId);
 			const expireInSeconds = 3600; // 1 hour
-			const agoraRole = roleStr === 'publisher' ? 1 : 2;
-
-			// Minimal AccessToken2 implementation for Cloudflare Workers
-			async function hmacSign(key, message) {
-				const enc = new TextEncoder();
-				const cryptoKey = await crypto.subtle.importKey(
-					'raw',
-					enc.encode(key),
-					{ name: 'HMAC', hash: 'SHA-256' },
-					false,
-					['sign']
-				);
-				return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message)));
-			}
-
-			function base64UrlEncode(bytes) {
-				return btoa(String.fromCharCode(...bytes))
-					.replace(/\+/g, '-')
-					.replace(/\//g, '_')
-					.replace(/=+$/, '');
-			}
-
-			function packUint32(num) {
-				return [
-					(num >>> 24) & 0xff,
-					(num >>> 16) & 0xff,
-					(num >>> 8) & 0xff,
-					num & 0xff,
-				];
-			}
-
-			// Build minimal token (not all privileges, but enough for RTC join)
-			const ts = Math.floor(Date.now() / 1000);
-			const salt = Math.floor(Math.random() * 0xffffffff);
-			const message = AGORA_APP_ID + channelName + uid + ts + salt + expireInSeconds + agoraRole;
-			const sign = await hmacSign(AGORA_APP_CERTIFICATE, message);
-			const tokenPayload = [
-				...Array.from(new TextEncoder().encode(AGORA_APP_ID)),
-				...Array.from(new TextEncoder().encode(channelName)),
-				...Array.from(new TextEncoder().encode(uid)),
-				...packUint32(ts),
-				...packUint32(salt),
-				...packUint32(expireInSeconds),
+			const privatePrivilegeExpireInSeconds = 3600;
+			const agoraRole = roleStr === 'publisher' ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
+			// Use official SDK to generate token
+			const token = RtcTokenBuilder.buildTokenWithUserAccount(
+				AGORA_APP_ID,
+				AGORA_APP_CERTIFICATE,
+				channelName,
+				uid,
 				agoraRole,
-				...sign,
-			];
-			const token = base64UrlEncode(new Uint8Array(tokenPayload));
+				expireInSeconds,
+				privatePrivilegeExpireInSeconds
+			);
 			return new Response(JSON.stringify({ token }), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
 		} else {
 			return new Response('Not Found', { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
