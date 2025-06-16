@@ -128,6 +128,12 @@
   <div class="container">
     <h1><span class="paw">🐾</span> PawWatch</h1>
     <div id="branding" style="margin-bottom:1em; color:#ff4e50; font-size:1.1em;">Keep an eye on your furry friend, anywhere!</div>
+    <div id="auth-section" style="margin-bottom:1em; width:100%; text-align:center;">
+      <button id="googleSignInBtn" style="background:#fff; color:#444; border:1px solid #ccc; border-radius:8px; padding:0.6em 1.2em; font-size:1em; display:flex; align-items:center; gap:0.5em; margin:0 auto; cursor:pointer;">
+        <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google" style="width:20px; height:20px; vertical-align:middle;"> Sign in with Google
+      </button>
+      <div id="user-info" style="margin-top:0.7em; display:none;"></div>
+    </div>
     <div id="setup">
       <label for="role">Choose your role:</label>
       <div class="role-select">
@@ -156,6 +162,17 @@
     }
     function getFromStorage(key) {
       try { return localStorage.getItem(key); } catch { return null; }
+    }
+
+    // --- Auth helpers ---
+    function saveJWT(token) {
+      try { localStorage.setItem('pawwatch-jwt', token); } catch {}
+    }
+    function getJWT() {
+      try { return localStorage.getItem('pawwatch-jwt'); } catch { return null; }
+    }
+    function clearJWT() {
+      try { localStorage.removeItem('pawwatch-jwt'); } catch {}
     }
 
     // --- UI Elements ---
@@ -300,6 +317,57 @@
       mainDiv.style.display = 'none';
       setupDiv.style.display = '';
     }
+
+    // --- Google Sign-In ---
+    const googleSignInBtn = document.getElementById('googleSignInBtn');
+    const userInfoDiv = document.getElementById('user-info');
+    function showUserInfo(user) {
+      userInfoDiv.style.display = 'block';
+      userInfoDiv.innerHTML = `Signed in as <b>${user.name}</b> (${user.email}) <button id="logoutBtn" style="margin-left:1em;">Log out</button>`;
+      document.getElementById('logoutBtn').onclick = () => {
+        clearJWT();
+        location.reload();
+      };
+      googleSignInBtn.style.display = 'none';
+    }
+    async function fetchUserInfo() {
+      const jwt = getJWT();
+      if (!jwt) return;
+      try {
+        const res = await fetch('/auth/me', {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        });
+        if (res.ok) {
+          const user = await res.json();
+          showUserInfo(user);
+        } else {
+          clearJWT();
+        }
+      } catch {
+        clearJWT();
+      }
+    }
+    googleSignInBtn.onclick = () => {
+      window.location.href = '/auth/google/login';
+    };
+    // --- Handle OAuth callback ---
+    (function handleOAuthCallback() {
+      const params = new URLSearchParams(window.location.search);
+      if (window.location.pathname === '/auth/google/callback' && params.has('code')) {
+        // Wait for backend to redirect with JWT
+        // This assumes backend returns JSON with { token }
+        fetch(window.location.href, { credentials: 'include' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.token) {
+              saveJWT(data.token);
+              window.location.href = '/';
+            }
+          });
+      }
+    })();
+    // --- On load, check for JWT and fetch user info ---
+    fetchUserInfo();
   </script>
 </body>
 </html> 

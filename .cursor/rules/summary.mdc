@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+This is project for remote pet monitoring
+It usees Agora service to stream video from one device to the another
+@/Petube - ios project
+@index.html - web version
