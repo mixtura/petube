@@ -31,6 +31,7 @@ export default {
 		// --- Endpoints ---
 		switch (url.pathname) {
 			case '/auth/google/login': {
+				console.log('[auth] /auth/google/login called');
 				const redirect_uri = `${url.origin}/auth/google/callback`;
 				const state = crypto.randomUUID();
 				const params = new URLSearchParams({
@@ -42,13 +43,18 @@ export default {
 					access_type: 'offline',
 					prompt: 'consent',
 				});
+				console.log('[auth] Redirecting to Google OAuth', params.toString());
 				return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 			}
 			case '/auth/google/callback': {
+				console.log('[auth] /auth/google/callback called', url.search);
 				if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
 				const code = url.searchParams.get('code');
 				const redirect_uri = `${url.origin}/auth/google/callback`;
-				if (!code) return new Response('Missing code', { status: 400 });
+				if (!code) {
+					console.error('[auth] Missing code in callback');
+					return new Response('Missing code', { status: 400 });
+				}
 				// Exchange code for tokens
 				const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
 					method: 'POST',
@@ -61,14 +67,15 @@ export default {
 						grant_type: 'authorization_code',
 					}),
 				});
-				// Add type assertion for tokenData
 				const tokenData = await tokenRes.json() as { id_token?: string };
 				const id_token = tokenData.id_token;
-				if (!id_token) return new Response('No id_token', { status: 400 });
+				if (!id_token) {
+					console.error('[auth] No id_token in token response', tokenData);
+					return new Response('No id_token', { status: 400 });
+				}
 				// Verify Google ID token
 				const { importJWK, jwtVerify, SignJWT } = await import('jose');
 				const googleRes = await fetch('https://www.googleapis.com/oauth2/v3/certs');
-				// Add type assertion for keys
 				const { keys } = await googleRes.json() as { keys: any[] };
 				let payload;
 				for (const jwk of keys) {
@@ -77,10 +84,16 @@ export default {
 						const { payload: pl } = await jwtVerify(id_token, pubKey, { audience: GOOGLE_CLIENT_ID });
 						payload = pl;
 						break;
-					} catch {}
+					} catch (e) {
+						console.error('[auth] Google token verification failed for a key', e);
+					}
 				}
-				if (!payload) return new Response('Invalid Google token', { status: 401 });
+				if (!payload) {
+					console.error('[auth] Invalid Google token, could not verify');
+					return new Response('Invalid Google token', { status: 401 });
+				}
 				// Issue our own JWT
+				console.log('[auth] Google user payload', payload);
 				const privateKey = await importJWK(JSON.parse(JWT_PRIVATE_KEY), 'RS256');
 				const jwt = await new SignJWT({
 					id: payload.sub,
@@ -91,20 +104,27 @@ export default {
 					.setIssuedAt()
 					.setExpirationTime('7d')
 					.sign(privateKey);
+				console.log('[auth] Issued JWT for user', payload.email);
 				return new Response(JSON.stringify({ token: jwt }), {
 					headers: { 'Content-Type': 'application/json' },
 				});
 			}
 			case '/auth/me': {
+				console.log('[auth] /auth/me called');
 				const { jwtVerify, importJWK } = await import('jose');
 				const auth = request.headers.get('authorization');
-				if (!auth?.startsWith('Bearer ')) return new Response('Missing token', { status: 401 });
+				if (!auth?.startsWith('Bearer ')) {
+					console.error('[auth] Missing token in /auth/me');
+					return new Response('Missing token', { status: 401 });
+				}
 				const token = auth.slice(7);
 				try {
 					const publicKey = await importJWK(JSON.parse(JWT_PUBLIC_KEY), 'RS256');
 					const { payload } = await jwtVerify(token, publicKey);
+					console.log('[auth] /auth/me success', payload);
 					return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } });
 				} catch (e) {
+					console.error('[auth] Invalid token in /auth/me', e);
 					return new Response('Invalid token', { status: 401 });
 				}
 			}
@@ -115,5 +135,5 @@ export default {
 			default:
 				return new Response('Not Found', { status: 404 });
 		}
-	},
-} satisfies ExportedHandler<Env>;
+	}
+};
