@@ -146,9 +146,9 @@ export default {
 			const channelName = String(userId);
 			let uid;
 			if (roleStr === 'publisher') {
-				uid = String(userId) + '-pub';
+				uid = String(userId) + '0';
 			} else if (roleStr === 'subscriber') {
-				uid = String(userId) + '-sub';
+				uid = String(userId) + '1';
 			} else {
 				uid = String(userId);
 			}
