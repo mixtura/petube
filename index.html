@@ -234,8 +234,7 @@
         if (!tokenRes.ok) throw new Error('token failed');
         const tokenData = await tokenRes.json();
         agoraToken = tokenData.token;
-        // Get Agora App ID from backend (optional: if you want to hide it, hardcode here)
-        agoraAppId = 'YOUR_AGORA_APP_ID'; // <-- Replace with your real App ID or fetch from backend if needed
+        agoraAppId = '2464efe13ff5419b9c635dfdcd70005e';
       } catch {
         clearJWT();
         window.location.href = 'https://auth.petube.workers.dev/auth/google/login';
@@ -373,6 +372,7 @@
           saveJWT(token);
           // Clean up the URL (remove fragment)
           window.location.hash = '';
+          window.location.href = '/petube/';
         }
       }
     })();

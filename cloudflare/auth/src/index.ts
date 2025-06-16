@@ -30,6 +30,17 @@ export default {
 		const JWT_PRIVATE_KEY = env.JWT_PRIVATE_KEY; // PEM-encoded private key
 		const JWT_PUBLIC_KEY = env.JWT_PUBLIC_KEY;   // PEM-encoded public key
 
+		// --- CORS Preflight ---
+		if (request.method === 'OPTIONS') {
+			return new Response(null, {
+				headers: {
+					'Access-Control-Allow-Origin': '*',
+					'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+					'Access-Control-Allow-Headers': '*',
+				},
+			});
+		}
+
 		// --- Endpoints ---
 		if (url.pathname === '/auth/google/login') {
 			const redirect_uri = `${url.origin}/auth/google/callback`;
@@ -102,14 +113,14 @@ export default {
 			try {
 				const publicKey = await importJWK(JSON.parse(JWT_PUBLIC_KEY), 'RS256');
 				const { payload } = await jwtVerify(token, publicKey);
-				return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } });
+				return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
 			} catch (e) {
 				return new Response('Invalid token', { status: 401 });
 			}
 		} else if (url.pathname === '/message') {
-			return new Response('Hello, World!');
+			return new Response('Hello, World!', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
 		} else if (url.pathname === '/random') {
-			return new Response(crypto.randomUUID());
+			return new Response(crypto.randomUUID(), { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
 		} else if (/^\/auth\/agora\/(publisher|subscriber)\/token$/.test(url.pathname)) {
 			// Path: /auth/agora/{role}/token
 			const match = url.pathname.match(/^\/auth\/agora\/(publisher|subscriber)\/token$/);
@@ -181,9 +192,9 @@ export default {
 				...sign,
 			];
 			const token = base64UrlEncode(new Uint8Array(tokenPayload));
-			return new Response(JSON.stringify({ token }), { headers: { 'Content-Type': 'application/json' } });
+			return new Response(JSON.stringify({ token }), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
 		} else {
-			return new Response('Not Found', { status: 404 });
+			return new Response('Not Found', { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } });
 		}
 	},
 };
