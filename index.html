@@ -274,7 +274,7 @@
       const leaveBtn = document.getElementById('leaveBtn');
       leaveBtn.onclick = leaveChannel;
       // Agora join as broadcaster
-      rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' });
       await rtc.client.setClientRole('host');
       await rtc.client.join(apiKey, channel, token, uid);
       rtc.localVideoTrack = await AgoraRTC.createCameraVideoTrack();
@@ -297,7 +297,7 @@
       const leaveBtn = document.getElementById('leaveBtn');
       leaveBtn.onclick = leaveChannel;
       // Agora join as audience
-      rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' });
+      rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' });
       await rtc.client.setClientRole('audience');
       await rtc.client.join(apiKey, channel, token, uid);
       rtc.client.on('user-published', async (user, mediaType) => {
