@@ -10,6 +10,14 @@ import AgoraRtcKit
 import UIKit
 import AuthenticationServices
 
+class WebAuthPresentationContextProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        return UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first ?? ASPresentationAnchor()
+    }
+}
+
 struct ContentView: View {
     enum Role: String, CaseIterable, Identifiable {
         case monitor = "🐶 Pet Monitor"
@@ -31,6 +39,7 @@ struct ContentView: View {
     @StateObject private var agoraManager = AgoraManager()
     @State private var showWebAuth = false
     @State private var webAuthSession: ASWebAuthenticationSession?
+    @State private var webAuthPresentationContextProvider = WebAuthPresentationContextProvider()
     
     var body: some View {
         VStack {
@@ -113,20 +122,24 @@ struct ContentView: View {
     }
     
     func startGoogleSignIn() {
-        let authURL = URL(string: "https://auth.petube.workers.dev/auth/google/login")!
-        let callbackScheme = "petube" // Register this scheme in Info.plist for URL types
+        let authURL = URL(string: "https://auth.petube.workers.dev/devicelogin")!
+        let callbackScheme = "com.googleusercontent.apps.378632047532-17q6rg6m36ga5c6ntg5an17mnhgpgsds" // Google iOS client scheme
+        print("[Auth] Starting Google Sign-In with URL: \(authURL)")
         webAuthSession = ASWebAuthenticationSession(url: authURL, callbackURLScheme: callbackScheme) { callbackURL, error in
-            if let callbackURL = callbackURL, let fragment = callbackURL.fragment, fragment.hasPrefix("token=") {
-                let token = String(fragment.dropFirst(6))
+            print("[Auth] WebAuthSession callbackURL: \(String(describing: callbackURL))")
+            print("[Auth] WebAuthSession error: \(String(describing: error))")
+            if let callbackURL = callbackURL, let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false), let token = components.queryItems?.first(where: { $0.name == "token" })?.value {
+                print("[Auth] Received JWT token: \(token)")
                 jwt = token
                 UserDefaults.standard.set(token, forKey: "pawwatch-jwt")
                 fetchUserInfo()
             } else {
                 alertMsg = "Authentication failed."
                 showAlert = true
+                print("[Auth] Authentication failed. callbackURL: \(String(describing: callbackURL)), error: \(String(describing: error))")
             }
         }
-        webAuthSession?.presentationContextProvider = UIApplication.shared.windows.first?.rootViewController as? ASWebAuthenticationPresentationContextProviding
+        webAuthSession?.presentationContextProvider = webAuthPresentationContextProvider
         webAuthSession?.start()
     }
     
@@ -135,12 +148,24 @@ struct ContentView: View {
         isLoading = true
         var req = URLRequest(url: URL(string: "https://auth.petube.workers.dev/auth/me")!)
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        print("[Auth] Fetching user info with JWT: \(jwt.prefix(10))...")
         URLSession.shared.dataTask(with: req) { data, response, error in
             DispatchQueue.main.async {
                 isLoading = false
+                if let error = error {
+                    print("[Auth] Error fetching user info: \(error)")
+                }
+                if let response = response as? HTTPURLResponse {
+                    print("[Auth] User info response status: \(response.statusCode)")
+                }
+                if let data = data {
+                    print("[Auth] User info response data: \(String(data: data, encoding: .utf8) ?? "<nil>")")
+                }
                 if let data = data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     user = obj
+                    print("[Auth] User info: \(obj)")
                 } else {
+                    print("[Auth] Failed to parse user info or not authenticated. Signing out.")
                     signOut()
                 }
             }
@@ -163,7 +188,12 @@ struct ContentView: View {
                 if let data = data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let token = obj["token"] as? String {
                     agoraToken = token
                     channel = String(describing: userId)
-                    uid = String(describing: userId) + (role == .monitor ? "0" : "1")
+                    if let userIdNum = UInt(String(describing: userId)) {
+                        uid = String(userIdNum + (role == .monitor ? 0 : 1))
+                    } else {
+                        uid = "0"
+                    }
+                    print("[Agora] Starting session. Role: \(role.rawValue), Channel: \(channel), UID: \(uid)")
                     UserDefaults.standard.set(role.rawValue, forKey: "pawwatch-role")
                     agoraManager.setup(appId: agoraAppId, token: agoraToken, channel: channel, uid: uid, asHost: role == .monitor)
                     UIApplication.shared.isIdleTimerDisabled = true
@@ -191,38 +221,53 @@ class AgoraManager: NSObject, ObservableObject {
     
     func setup(appId: String, token: String, channel: String, uid: String, asHost: Bool) {
         isHost = asHost
-        agoraKit = AgoraRtcEngineKit.sharedEngine(withAppId: appId, delegate: self)
-        if asHost {
-            agoraKit?.setChannelProfile(.liveBroadcasting)
-            agoraKit?.setClientRole(.broadcaster)
+        print("[Agora] setup called. appId: \(appId), token: \(token.prefix(8))..., channel: \(channel), uid: \(uid), asHost: \(asHost)")
+        if let uidUInt = UInt(uid) {
+            print("[Agora] Parsed uid string '\(uid)' to UInt: \(uidUInt)")
+            agoraKit = AgoraRtcEngineKit.sharedEngine(withAppId: appId, delegate: self)
+            if asHost {
+                agoraKit?.setChannelProfile(.liveBroadcasting)
+                agoraKit?.setClientRole(.broadcaster)
+                print("[Agora] Set as broadcaster")
+            } else {
+                agoraKit?.setChannelProfile(.liveBroadcasting)
+                agoraKit?.setClientRole(.audience)
+                print("[Agora] Set as audience")
+            }
+            let videoConfig = AgoraVideoEncoderConfiguration(
+                size: CGSize(width: 640, height: 360),
+                frameRate: .fps15,
+                bitrate: AgoraVideoBitrateStandard,
+                orientationMode: .adaptative, mirrorMode: AgoraVideoMirrorMode.auto
+            )
+            agoraKit?.setVideoEncoderConfiguration(videoConfig)
+            agoraKit?.enableVideo()
+            if asHost {
+                let view = UIView()
+                localCanvas = view
+                agoraKit?.startPreview()
+                let videoCanvas = AgoraRtcVideoCanvas()
+                videoCanvas.uid = 0
+                videoCanvas.view = view
+                videoCanvas.renderMode = .hidden
+                agoraKit?.setupLocalVideo(videoCanvas)
+                print("[Agora] Local video setup complete (host)")
+            }
+            agoraKit?.joinChannel(byToken: token, channelId: channel, info: nil, uid: uidUInt) { [weak self] (channel, uid, elapsed) in
+                print("[Agora] Joined channel: \(channel) as \(asHost ? "host" : "audience") with uid: \(uid)")
+            }
         } else {
-            agoraKit?.setChannelProfile(.liveBroadcasting)
-            agoraKit?.setClientRole(.audience)
-        }
-        let videoConfig = AgoraVideoEncoderConfiguration(
-            size: CGSize(width: 640, height: 360),
-            frameRate: .fps15,
-            bitrate: AgoraVideoBitrateStandard,
-            orientationMode: .adaptative, mirrorMode: AgoraVideoMirrorMode.auto
-        )
-        agoraKit?.setVideoEncoderConfiguration(videoConfig)
-        agoraKit?.enableVideo()
-        if asHost {
-            let view = UIView()
-            localCanvas = view
-            agoraKit?.startPreview()
-            let videoCanvas = AgoraRtcVideoCanvas()
-            videoCanvas.uid = 0
-            videoCanvas.view = view
-            videoCanvas.renderMode = .hidden
-            agoraKit?.setupLocalVideo(videoCanvas)
-        }
-        agoraKit?.joinChannel(byToken: token, channelId: channel, info: nil, uid: UInt(uid) ?? 0) { [weak self] (channel, uid, elapsed) in
-            print("Joined channel: \(channel) as \(asHost ? "host" : "audience") with uid: \(uid)")
+            print("[Agora] ERROR: Failed to parse uid string '\(uid)' to UInt")
+            DispatchQueue.main.async {
+                let alert = UIAlertController(title: "Agora Error", message: "Failed to parse UID for Agora. Please use a different account.", preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
+                UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true, completion: nil)
+            }
         }
     }
     
     func leaveChannel() {
+        print("[Agora] Leaving channel")
         agoraKit?.leaveChannel(nil)
         if isHost {
             agoraKit?.stopPreview()
@@ -234,6 +279,7 @@ class AgoraManager: NSObject, ObservableObject {
 }
 extension AgoraManager: AgoraRtcEngineDelegate {
     func rtcEngine(_ engine: AgoraRtcEngineKit, didJoinedOfUid uid: UInt, elapsed: Int) {
+        print("[Agora] didJoinedOfUid: \(uid), isHost: \(isHost)")
         if !isHost {
             let view = UIView()
             remoteCanvas = view
@@ -242,9 +288,11 @@ extension AgoraManager: AgoraRtcEngineDelegate {
             videoCanvas.view = view
             videoCanvas.renderMode = .hidden
             engine.setupRemoteVideo(videoCanvas)
+            print("[Agora] Remote video setup complete (audience)")
         }
     }
     func rtcEngine(_ engine: AgoraRtcEngineKit, didOfflineOfUid uid: UInt, reason: AgoraUserOfflineReason) {
+        print("[Agora] didOfflineOfUid: \(uid), reason: \(reason.rawValue), isHost: \(isHost)")
         if !isHost {
             remoteCanvas = nil
         }

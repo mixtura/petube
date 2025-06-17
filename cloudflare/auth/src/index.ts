@@ -17,6 +17,8 @@ import { RtcTokenBuilder, RtcRole } from 'agora-token';
 interface Env {
 	GOOGLE_CLIENT_ID: string;
 	GOOGLE_CLIENT_SECRET: string;
+	GOOGLE_IOS_CLIENT_ID: string;
+	GOOGLE_IOS_CLIENT_SECRET: string;
 	JWT_PRIVATE_KEY: string;
 	JWT_PUBLIC_KEY: string;
 	AGORA_APP_ID: string;
@@ -29,6 +31,8 @@ export default {
 		// --- Config ---
 		const GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID;
 		const GOOGLE_CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
+		const GOOGLE_IOS_CLIENT_ID = env.GOOGLE_IOS_CLIENT_ID;
+		const GOOGLE_IOS_CLIENT_SECRET = env.GOOGLE_IOS_CLIENT_SECRET;
 		const JWT_PRIVATE_KEY = env.JWT_PRIVATE_KEY; // PEM-encoded private key
 		const JWT_PUBLIC_KEY = env.JWT_PUBLIC_KEY;   // PEM-encoded public key
 
@@ -107,6 +111,69 @@ export default {
 				.sign(privateKey);
 			// Redirect to / with token in fragment
 			return Response.redirect(`https://mixtura.github.io/petube/#token=${jwt}`, 302);
+		} else if (url.pathname === '/devicelogin') {
+			// iOS app login initiation (using Web client)
+			const redirect_uri = 'https://auth.petube.workers.dev/devicelogin/callback';
+			const state = crypto.randomUUID();
+			const params = new URLSearchParams({
+				client_id: GOOGLE_IOS_CLIENT_ID,
+				redirect_uri,
+				response_type: 'code',
+				scope: 'openid email profile',
+				state,
+				access_type: 'offline',
+				prompt: 'consent',
+			});
+			return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+		} else if (url.pathname === '/devicelogin/callback') {
+			if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+			const code = url.searchParams.get('code');
+			const redirect_uri = 'https://auth.petube.workers.dev/devicelogin/callback';
+			if (!code) return new Response('Missing code', { status: 400 });
+			const GOOGLE_IOS_CLIENT_ID = env.GOOGLE_IOS_CLIENT_ID;
+			const GOOGLE_IOS_CLIENT_SECRET = env.GOOGLE_IOS_CLIENT_SECRET;
+			// Exchange code for tokens (web client)
+			const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: new URLSearchParams({
+					code,
+					client_id: GOOGLE_IOS_CLIENT_ID,
+					client_secret: GOOGLE_IOS_CLIENT_SECRET,
+					redirect_uri,
+					grant_type: 'authorization_code',
+				}),
+			});
+			const tokenData = await tokenRes.json();
+			if (!tokenData.id_token) {
+				return new Response(JSON.stringify(tokenData), { headers: { 'Content-Type': 'application/json' }, status: 400 });
+			}
+			const id_token = tokenData.id_token;
+			const { importJWK, jwtVerify, SignJWT } = await import('jose');
+			const googleRes = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+			const { keys } = await googleRes.json() as { keys: any[] };
+			let payload;
+			for (const jwk of keys) {
+				try {
+					const pubKey = await importJWK(jwk, 'RS256');
+					const { payload: pl } = await jwtVerify(id_token, pubKey, { audience: GOOGLE_IOS_CLIENT_ID });
+					payload = pl;
+					break;
+				} catch {}
+			}
+			if (!payload) return new Response('Invalid Google token', { status: 401 });
+			const privateKey = await importJWK(JSON.parse(env.JWT_PRIVATE_KEY), 'RS256');
+			const jwt = await new SignJWT({
+				id: payload.sub,
+				email: payload.email,
+				name: payload.name,
+			})
+				.setProtectedHeader({ alg: 'RS256' })
+				.setIssuedAt()
+				.setExpirationTime('7d')
+				.sign(privateKey);
+			// Redirect to app with token as query param
+			return Response.redirect(`petube://auth-callback?token=${jwt}`, 302);
 		} else if (url.pathname === '/auth/me') {
 			const { jwtVerify, importJWK } = await import('jose');
 			const auth = request.headers.get('authorization');
@@ -146,11 +213,11 @@ export default {
 			const channelName = String(userId);
 			let uid;
 			if (roleStr === 'publisher') {
-				uid = String(userId) + '0';
+				uid = Number(userId) + 0;
 			} else if (roleStr === 'subscriber') {
-				uid = String(userId) + '1';
+				uid = Number(userId) + 1;
 			} else {
-				uid = String(userId);
+				uid = Number(userId);
 			}
 			const expireInSeconds = 3600; // 1 hour
 			const privatePrivilegeExpireInSeconds = 3600;
@@ -160,7 +227,7 @@ export default {
 				AGORA_APP_ID,
 				AGORA_APP_CERTIFICATE,
 				channelName,
-				uid,
+				String(uid),
 				agoraRole,
 				expireInSeconds,
 				privatePrivilegeExpireInSeconds
