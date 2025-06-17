@@ -242,7 +242,7 @@
       }
       // Use user.id as channel and uid as user.id + 0 (monitor) or user.id + 1 (owner)
       const channel = String(user.id);
-      let uid = Number(user.id) + (role === 'monitor' ? 0 : 1);
+      let uid = 0;
       console.log('Joining channel:', channel, 'with uid:', uid, 'as', role);
       setupDiv.style.display = 'none';
       mainDiv.style.display = '';

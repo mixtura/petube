@@ -188,11 +188,7 @@ struct ContentView: View {
                 if let data = data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let token = obj["token"] as? String {
                     agoraToken = token
                     channel = String(describing: userId)
-                    if let userIdNum = UInt(String(describing: userId)) {
-                        uid = String(userIdNum + (role == .monitor ? 0 : 1))
-                    } else {
-                        uid = "0"
-                    }
+                    uid = "0"
                     print("[Agora] Starting session. Role: \(role.rawValue), Channel: \(channel), UID: \(uid)")
                     UserDefaults.standard.set(role.rawValue, forKey: "pawwatch-role")
                     agoraManager.setup(appId: agoraAppId, token: agoraToken, channel: channel, uid: uid, asHost: role == .monitor)
@@ -253,7 +249,7 @@ class AgoraManager: NSObject, ObservableObject {
                 agoraKit?.setupLocalVideo(videoCanvas)
                 print("[Agora] Local video setup complete (host)")
             }
-            agoraKit?.joinChannel(byToken: token, channelId: channel, info: nil, uid: uidUInt) { [weak self] (channel, uid, elapsed) in
+            agoraKit?.joinChannel(byToken: token, channelId: channel, info: nil, uid: 0) { (channel, uid, elapsed) in
                 print("[Agora] Joined channel: \(channel) as \(asHost ? "host" : "audience") with uid: \(uid)")
             }
         } else {

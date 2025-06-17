@@ -211,13 +211,13 @@ export default {
 			const AGORA_APP_ID = env.AGORA_APP_ID;
 			const AGORA_APP_CERTIFICATE = env.AGORA_APP_CERTIFICATE;
 			const channelName = String(userId);
-			let uid;
+			let uid = '0';
 			if (roleStr === 'publisher') {
-				uid = Number(userId) + 0;
+				uid = '0';
 			} else if (roleStr === 'subscriber') {
-				uid = Number(userId) + 1;
+				uid = '0';
 			} else {
-				uid = Number(userId);
+				uid = '0';
 			}
 			const expireInSeconds = 3600; // 1 hour
 			const privatePrivilegeExpireInSeconds = 3600;
@@ -227,7 +227,7 @@ export default {
 				AGORA_APP_ID,
 				AGORA_APP_CERTIFICATE,
 				channelName,
-				String(uid),
+				uid,
 				agoraRole,
 				expireInSeconds,
 				privatePrivilegeExpireInSeconds
