@@ -178,6 +178,7 @@
 
     // --- State ---
     let role = getFromStorage('pawwatch-role') || 'monitor';
+    let websocket = null;
 
     // --- Restore UI ---
     function updateRoleUI() {
@@ -244,6 +245,43 @@
       const channel = String(user.id);
       let uid = 0;
       console.log('Joining channel:', channel, 'with uid:', uid, 'as', role);
+
+      // --- WebSocket Connection ---
+      // Replace with your actual stream-control worker URL
+      const wsUrl = `wss://stream-control.petube.workers.dev/room/${channel}?token=${jwt}`;
+      websocket = new WebSocket(wsUrl);
+
+      websocket.onopen = () => {
+        console.log('WebSocket connected.');
+        const rolePayload = {
+          type: 'role',
+          role: role === 'monitor' ? 'publisher' : 'subscriber'
+        };
+        websocket.send(JSON.stringify(rolePayload));
+      };
+
+      websocket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('Received command:', data);
+        if (data.type === 'control' && role === 'monitor') {
+          if (data.action === 'start') {
+            publishTracks();
+          } else if (data.action === 'pause') {
+            unpublishTracks();
+          }
+        }
+      };
+
+      websocket.onclose = () => {
+        console.log('WebSocket disconnected.');
+        websocket = null;
+      };
+
+      websocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        // Consider handling reconnection or notifying the user
+      };
+
       setupDiv.style.display = 'none';
       mainDiv.style.display = '';
       if (role === 'monitor') {
@@ -277,12 +315,26 @@
       rtc.client = AgoraRTC.createClient({ mode: 'live', codec: 'h264' });
       await rtc.client.setClientRole('host');
       await rtc.client.join(apiKey, channel, token, uid);
+      // Create tracks but don't publish immediately
       rtc.localVideoTrack = await AgoraRTC.createCameraVideoTrack();
       rtc.localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-      await rtc.client.publish([rtc.localVideoTrack, rtc.localAudioTrack]);
-      console.log('Published local tracks:', rtc.localVideoTrack, rtc.localAudioTrack);
       // Show preview
       rtc.localVideoTrack.play('localVideo');
+      // The publisher will wait for a 'start' command from the WebSocket
+    }
+
+    async function publishTracks() {
+      if (rtc.client && rtc.localVideoTrack && rtc.localAudioTrack && !rtc.client.localTracks.length) {
+        await rtc.client.publish([rtc.localVideoTrack, rtc.localAudioTrack]);
+        console.log('Published local tracks.');
+      }
+    }
+
+    async function unpublishTracks() {
+      if (rtc.client && rtc.client.localTracks.length > 0) {
+        await rtc.client.unpublish([rtc.localVideoTrack, rtc.localAudioTrack]);
+        console.log('Unpublished local tracks.');
+      }
     }
 
     async function startOwner(apiKey, token, channel, uid) {
@@ -319,6 +371,9 @@
     }
 
     async function leaveChannel() {
+      if (websocket) {
+        websocket.close();
+      }
       if (rtc.localVideoTrack) {
         rtc.localVideoTrack.stop();
         rtc.localVideoTrack.close();

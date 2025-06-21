@@ -212,7 +212,7 @@ struct ContentView: View {
 class AgoraManager: NSObject, ObservableObject {
     private var agoraKit: AgoraRtcEngineKit?
     @Published var localCanvas: UIView? = nil
-    @Published var remoteCanvas: UIView? = nil
+    @Published var remoteCanvas: UIView? = UIView()
     private var isHost = false
     
     func setup(appId: String, token: String, channel: String, uid: String, asHost: Bool) {
@@ -269,7 +269,7 @@ class AgoraManager: NSObject, ObservableObject {
             agoraKit?.stopPreview()
         }
         localCanvas = nil
-        remoteCanvas = nil
+        remoteCanvas = UIView()
         agoraKit = nil
     }
 }
@@ -277,20 +277,20 @@ extension AgoraManager: AgoraRtcEngineDelegate {
     func rtcEngine(_ engine: AgoraRtcEngineKit, didJoinedOfUid uid: UInt, elapsed: Int) {
         print("[Agora] didJoinedOfUid: \(uid), isHost: \(isHost)")
         if !isHost {
-            let view = UIView()
-            remoteCanvas = view
             let videoCanvas = AgoraRtcVideoCanvas()
             videoCanvas.uid = uid
-            videoCanvas.view = view
+            videoCanvas.view = remoteCanvas
             videoCanvas.renderMode = .hidden
             engine.setupRemoteVideo(videoCanvas)
+            remoteCanvas!.setNeedsLayout()
+            remoteCanvas!.layoutIfNeeded()
             print("[Agora] Remote video setup complete (audience)")
         }
     }
     func rtcEngine(_ engine: AgoraRtcEngineKit, didOfflineOfUid uid: UInt, reason: AgoraUserOfflineReason) {
         print("[Agora] didOfflineOfUid: \(uid), reason: \(reason.rawValue), isHost: \(isHost)")
         if !isHost {
-            remoteCanvas = nil
+            remoteCanvas = UIView()
         }
     }
 }
@@ -300,9 +300,9 @@ struct AgoraVideoView: UIViewRepresentable {
     var isLocal: Bool
     func makeUIView(context: Context) -> UIView {
         if isLocal {
-            return agoraManager.localCanvas ?? UIView()
+            return agoraManager.localCanvas!
         } else {
-            return agoraManager.remoteCanvas ?? UIView()
+            return agoraManager.remoteCanvas!
         }
     }
     func updateUIView(_ uiView: UIView, context: Context) {

@@ -4,8 +4,19 @@ globs:
 alwaysApply: true
 ---
 This is project for remote pet monitoring
-It usees Agora service to stream video from one device to the another
+It uses Agora service to stream video from one device (with role publisher) to the another (with role subscriber)
 @/Petube - ios project
 @index.html - web version, static page that deployed on github pages (https://mixtura.github.io/petube/)
 @/cloudflare - backend deployed to cloudfare workers:
     - auth https://auth.petube.workers.dev
+
+key vault keys:
+
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+JWT_PRIVATE_KEY
+JWT_PUBLIC_KEY
+AGORA_APP_ID
+AGORA_APP_CERTIFICATE
+GOOGLE_IOS_CLIENT_ID
+GOOGLE_IOS_CLIENT_SECRET

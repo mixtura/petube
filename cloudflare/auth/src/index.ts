@@ -211,14 +211,7 @@ export default {
 			const AGORA_APP_ID = env.AGORA_APP_ID;
 			const AGORA_APP_CERTIFICATE = env.AGORA_APP_CERTIFICATE;
 			const channelName = String(userId);
-			let uid = '0';
-			if (roleStr === 'publisher') {
-				uid = '0';
-			} else if (roleStr === 'subscriber') {
-				uid = '0';
-			} else {
-				uid = '0';
-			}
+			const uid = '0';
 			const expireInSeconds = 3600; // 1 hour
 			const privatePrivilegeExpireInSeconds = 3600;
 			const agoraRole = roleStr === 'publisher' ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
