@@ -26,13 +26,9 @@ interface Env {
 }
 
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 		// --- Config ---
-		const GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID;
-		const GOOGLE_CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
-		const GOOGLE_IOS_CLIENT_ID = env.GOOGLE_IOS_CLIENT_ID;
-		const GOOGLE_IOS_CLIENT_SECRET = env.GOOGLE_IOS_CLIENT_SECRET;
 		const JWT_PRIVATE_KEY = env.JWT_PRIVATE_KEY; // PEM-encoded private key
 		const JWT_PUBLIC_KEY = env.JWT_PUBLIC_KEY;   // PEM-encoded public key
 
@@ -52,7 +48,7 @@ export default {
 			const redirect_uri = `${url.origin}/auth/google/callback`;
 			const state = crypto.randomUUID();
 			const params = new URLSearchParams({
-				client_id: GOOGLE_CLIENT_ID,
+				client_id: env.GOOGLE_CLIENT_ID,
 				redirect_uri,
 				response_type: 'code',
 				scope: 'openid email profile',
@@ -72,13 +68,13 @@ export default {
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: new URLSearchParams({
 					code,
-					client_id: GOOGLE_CLIENT_ID,
-					client_secret: GOOGLE_CLIENT_SECRET,
+					client_id: env.GOOGLE_CLIENT_ID,
+					client_secret: env.GOOGLE_CLIENT_SECRET,
 					redirect_uri,
 					grant_type: 'authorization_code',
 				}),
 			});
-			const tokenData = await tokenRes.json();
+			const tokenData = await tokenRes.json<{ id_token: string }>();
 			if (!tokenData.id_token) {
 				return new Response(JSON.stringify(tokenData), { headers: { 'Content-Type': 'application/json' }, status: 400 });
 			}
@@ -92,7 +88,7 @@ export default {
 			for (const jwk of keys) {
 				try {
 					const pubKey = await importJWK(jwk, 'RS256');
-					const { payload: pl } = await jwtVerify(id_token, pubKey, { audience: GOOGLE_CLIENT_ID });
+					const { payload: pl } = await jwtVerify(id_token, pubKey, { audience: env.GOOGLE_CLIENT_ID });
 					payload = pl;
 					break;
 				} catch {}
@@ -116,7 +112,7 @@ export default {
 			const redirect_uri = 'https://auth.petube.workers.dev/devicelogin/callback';
 			const state = crypto.randomUUID();
 			const params = new URLSearchParams({
-				client_id: GOOGLE_IOS_CLIENT_ID,
+				client_id: env.GOOGLE_IOS_CLIENT_ID,
 				redirect_uri,
 				response_type: 'code',
 				scope: 'openid email profile',
@@ -130,21 +126,19 @@ export default {
 			const code = url.searchParams.get('code');
 			const redirect_uri = 'https://auth.petube.workers.dev/devicelogin/callback';
 			if (!code) return new Response('Missing code', { status: 400 });
-			const GOOGLE_IOS_CLIENT_ID = env.GOOGLE_IOS_CLIENT_ID;
-			const GOOGLE_IOS_CLIENT_SECRET = env.GOOGLE_IOS_CLIENT_SECRET;
 			// Exchange code for tokens (web client)
 			const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: new URLSearchParams({
 					code,
-					client_id: GOOGLE_IOS_CLIENT_ID,
-					client_secret: GOOGLE_IOS_CLIENT_SECRET,
+					client_id: env.GOOGLE_IOS_CLIENT_ID,
+					client_secret: env.GOOGLE_IOS_CLIENT_SECRET,
 					redirect_uri,
 					grant_type: 'authorization_code',
 				}),
 			});
-			const tokenData = await tokenRes.json();
+			const tokenData = await tokenRes.json<{ id_token: string }>();
 			if (!tokenData.id_token) {
 				return new Response(JSON.stringify(tokenData), { headers: { 'Content-Type': 'application/json' }, status: 400 });
 			}
@@ -156,7 +150,7 @@ export default {
 			for (const jwk of keys) {
 				try {
 					const pubKey = await importJWK(jwk, 'RS256');
-					const { payload: pl } = await jwtVerify(id_token, pubKey, { audience: GOOGLE_IOS_CLIENT_ID });
+					const { payload: pl } = await jwtVerify(id_token, pubKey, { audience: env.GOOGLE_IOS_CLIENT_ID });
 					payload = pl;
 					break;
 				} catch {}

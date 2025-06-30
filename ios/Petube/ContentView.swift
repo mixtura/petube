@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var channel: String = ""
     @State private var uid: String = ""
     @StateObject private var agoraManager = AgoraManager()
+    @State private var webSocketManager = WebSocketManager()
     @State private var showWebAuth = false
     @State private var webAuthSession: ASWebAuthenticationSession?
     @State private var webAuthPresentationContextProvider = WebAuthPresentationContextProvider()
@@ -103,6 +104,7 @@ struct ContentView: View {
                         .foregroundColor(.gray)
                     Button(role == .monitor ? "Stop Streaming" : "Leave") {
                         agoraManager.leaveChannel()
+                        webSocketManager.disconnect()
                         UIApplication.shared.isIdleTimerDisabled = false
                         started = false
                     }
@@ -115,6 +117,7 @@ struct ContentView: View {
             Button("OK", role: .cancel) {}
         }
         .onAppear {
+            self.webSocketManager.delegate = self
             if jwt != nil && user == nil {
                 fetchUserInfo()
             }
@@ -189,14 +192,21 @@ struct ContentView: View {
                     agoraToken = token
                     channel = String(describing: userId)
                     uid = "0"
-                    print("[Agora] Starting session. Role: \(role.rawValue), Channel: \(channel), UID: \(uid)")
-                    UserDefaults.standard.set(role.rawValue, forKey: "pawwatch-role")
-                    agoraManager.setup(appId: agoraAppId, token: agoraToken, channel: channel, uid: uid, asHost: role == .monitor)
+                    print("[Agora] Starting session. Role: \(self.role.rawValue), Channel: \(self.channel), UID: \(self.uid)")
+                    UserDefaults.standard.set(self.role.rawValue, forKey: "pawwatch-role")
+                    // Connect WebSocket
+                    self.webSocketManager.connect(roomId: self.channel, token: jwt)
+                    let wsRole = self.role == .monitor ? "publisher" : "subscriber"
+                    // A slight delay to ensure the connection is open before sending the role
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.webSocketManager.sendRole(wsRole)
+                    }
+                    agoraManager.setup(appId: self.agoraAppId, token: self.agoraToken, channel: self.channel, uid: self.uid, asHost: self.role == .monitor)
                     UIApplication.shared.isIdleTimerDisabled = true
-                    started = true
+                    self.started = true
                 } else {
-                    alertMsg = "Failed to fetch Agora token."
-                    showAlert = true
+                    self.alertMsg = "Failed to fetch Agora token."
+                    self.showAlert = true
                 }
             }
         }.resume()
@@ -209,11 +219,22 @@ struct ContentView: View {
     }
 }
 
+extension ContentView: WebSocketManagerDelegate {
+    func webSocketDidReceiveCommand(_ action: String) {
+        if action == "start" {
+            agoraManager.publish()
+        } else if action == "pause" {
+            agoraManager.unpublish()
+        }
+    }
+}
+
 class AgoraManager: NSObject, ObservableObject {
-    private var agoraKit: AgoraRtcEngineKit?
+    var agoraKit: AgoraRtcEngineKit?
     @Published var localCanvas: UIView? = nil
     @Published var remoteCanvas: UIView? = UIView()
     private var isHost = false
+    private var isPublished = false
     
     func setup(appId: String, token: String, channel: String, uid: String, asHost: Bool) {
         isHost = asHost
@@ -221,15 +242,12 @@ class AgoraManager: NSObject, ObservableObject {
         if let uidUInt = UInt(uid) {
             print("[Agora] Parsed uid string '\(uid)' to UInt: \(uidUInt)")
             agoraKit = AgoraRtcEngineKit.sharedEngine(withAppId: appId, delegate: self)
-            if asHost {
-                agoraKit?.setChannelProfile(.liveBroadcasting)
-                agoraKit?.setClientRole(.broadcaster)
-                print("[Agora] Set as broadcaster")
-            } else {
-                agoraKit?.setChannelProfile(.liveBroadcasting)
-                agoraKit?.setClientRole(.audience)
-                print("[Agora] Set as audience")
-            }
+
+            agoraKit?.setChannelProfile(.liveBroadcasting)
+            // All users join as audience first. The host will become a broadcaster on command.
+            agoraKit?.setClientRole(.audience)
+            print("[Agora] Set as audience")
+
             let videoConfig = AgoraVideoEncoderConfiguration(
                 size: CGSize(width: 640, height: 360),
                 frameRate: .fps15,
@@ -249,64 +267,83 @@ class AgoraManager: NSObject, ObservableObject {
                 agoraKit?.setupLocalVideo(videoCanvas)
                 print("[Agora] Local video setup complete (host)")
             }
-            agoraKit?.joinChannel(byToken: token, channelId: channel, info: nil, uid: 0) { (channel, uid, elapsed) in
-                print("[Agora] Joined channel: \(channel) as \(asHost ? "host" : "audience") with uid: \(uid)")
+            agoraKit?.joinChannel(byToken: token, channelId: channel, info: nil, uid: uidUInt) { (sid, uid, elapsed) in
+                print("[Agora] Joined channel. SID: \(sid), UID: \(uid), elapsed: \(elapsed)")
             }
         } else {
-            print("[Agora] ERROR: Failed to parse uid string '\(uid)' to UInt")
-            DispatchQueue.main.async {
-                let alert = UIAlertController(title: "Agora Error", message: "Failed to parse UID for Agora. Please use a different account.", preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
-                UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true, completion: nil)
-            }
+            print("[Agora] Failed to parse UID string to UInt: \(uid)")
         }
     }
     
-    func leaveChannel() {
-        print("[Agora] Leaving channel")
-        agoraKit?.leaveChannel(nil)
-        if isHost {
-            agoraKit?.stopPreview()
+    func publish() {
+        if isHost && !isPublished {
+            agoraKit?.setClientRole(.broadcaster) // Ensure role is correct
+            print("[Agora] Publishing stream...")
+            isPublished = true
         }
+    }
+
+    func unpublish() {
+        if isHost && isPublished {
+            agoraKit?.setClientRole(.audience) // Revert to audience to stop publishing
+            print("[Agora] Unpublishing stream...")
+            isPublished = false
+        }
+    }
+
+    func leaveChannel() {
+        agoraKit?.leaveChannel(nil)
+        agoraKit?.stopPreview()
         localCanvas = nil
-        remoteCanvas = UIView()
+        isPublished = false
+        AgoraRtcEngineKit.destroy()
         agoraKit = nil
+        print("[Agora] Channel left and engine destroyed.")
     }
 }
+
 extension AgoraManager: AgoraRtcEngineDelegate {
     func rtcEngine(_ engine: AgoraRtcEngineKit, didJoinedOfUid uid: UInt, elapsed: Int) {
-        print("[Agora] didJoinedOfUid: \(uid), isHost: \(isHost)")
-        if !isHost {
-            let videoCanvas = AgoraRtcVideoCanvas()
-            videoCanvas.uid = uid
-            videoCanvas.view = remoteCanvas
-            videoCanvas.renderMode = .hidden
-            engine.setupRemoteVideo(videoCanvas)
-            remoteCanvas!.setNeedsLayout()
-            remoteCanvas!.layoutIfNeeded()
-            print("[Agora] Remote video setup complete (audience)")
-        }
-    }
-    func rtcEngine(_ engine: AgoraRtcEngineKit, didOfflineOfUid uid: UInt, reason: AgoraUserOfflineReason) {
-        print("[Agora] didOfflineOfUid: \(uid), reason: \(reason.rawValue), isHost: \(isHost)")
-        if !isHost {
-            remoteCanvas = UIView()
-        }
+        print("[Agora] Remote user joined: \(uid)")
+        let videoCanvas = AgoraRtcVideoCanvas()
+        videoCanvas.uid = uid
+        videoCanvas.view = remoteCanvas
+        videoCanvas.renderMode = .hidden
+        agoraKit?.setupRemoteVideo(videoCanvas)
     }
 }
 
 struct AgoraVideoView: UIViewRepresentable {
     @ObservedObject var agoraManager: AgoraManager
     var isLocal: Bool
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
     func makeUIView(context: Context) -> UIView {
+        let view = UIView()
         if isLocal {
-            return agoraManager.localCanvas!
+            if let local = agoraManager.localCanvas {
+                local.frame = view.bounds
+                local.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                view.addSubview(local)
+            }
         } else {
-            return agoraManager.remoteCanvas!
+            if let remote = agoraManager.remoteCanvas {
+                remote.frame = view.bounds
+                remote.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                view.addSubview(remote)
+            }
         }
+        return view
     }
     func updateUIView(_ uiView: UIView, context: Context) {
-        // No-op
+        uiView.subviews.first?.frame = uiView.bounds
+    }
+    class Coordinator: NSObject {
+        var parent: AgoraVideoView
+        init(_ parent: AgoraVideoView) {
+            self.parent = parent
+        }
     }
 }
 

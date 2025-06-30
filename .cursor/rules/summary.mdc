@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 This is project for remote pet monitoring
 It uses Agora service to stream video from one device (with role publisher) to the another (with role subscriber)
-@/Petube - ios project
+@/ios - ios project
 @index.html - web version, static page that deployed on github pages (https://mixtura.github.io/petube/)
 @/cloudflare - backend deployed to cloudfare workers:
     - auth https://auth.petube.workers.dev
